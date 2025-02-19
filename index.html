@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>智能调休管理系统</title>
+    <style>
+        :root {
+            --primary-blue: #2196F3;
+            --hover-blue: #1976D2;
+            --background-gray: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui;
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 120px 1fr;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        input, select, button {
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        button {
+            background: var(--primary-blue);
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--hover-blue);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            text-align: left;
+        }
+
+        th {
+            background: var(--background-gray);
+        }
+
+        .delete-btn {
+            background: #ff4444;
+            padding: 0.5rem 1rem;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+        }
+    </style>
+    <script src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h2>调休登记</h2>
+        <div class="input-group">
+            <input type="date" id="dateInput">
+            <select id="periodSelect">
+                <option value="上午">上午</option>
+                <option value="下午">下午</option>
+            </select>
+            <input type="text" id="nameInput" placeholder="姓名">
+        </div>
+        <button onclick="addRecord()">提交记录</button>
+    </div>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>调休记录</h3>
+            <table id="recordsTable">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>时段</th>
+                        <th>姓名</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>月度统计</h3>
+            <table id="statsTable">
+                <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>月份</th>
+                        <th>调休天数</th>
+                    </tr>
+                </thead>
+                <tbody id="statsBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <button onclick="exportExcel()">导出Excel</button>
+    </div>
+
+    <div id="passwordModal" class="modal">
+        <div class="modal-content">
+            <h3>操作验证</h3>
+            <input type="password" id="passwordInput" placeholder="请输入删除密码">
+            <button onclick="confirmDelete()">确认</button>
+            <button onclick="cancelDelete()">取消</button>
+        </div>
+    </div>
+
+<script>
+const PASSWORD = '1234';
+let records = JSON.parse(localStorage.getItem('leaveRecords') || '[]');
+let deleteIndex = null;
+
+// 主功能函数
+function addRecord() {
+    const record = {
+        date: document.getElementById('dateInput').value,
+        period: document.getElementById('periodSelect').value,
+        name: document.getElementById('nameInput').value.trim()
+    };
+
+    if (!validateRecord(record)) return;
+    
+    records.push(record);
+    saveRecords();
+    clearInputs();
+}
+
+function deleteRecord(index) {
+    showPasswordModal(() => {
+        records.splice(index, 1);
+        saveRecords();
+    });
+}
+
+function exportExcel() {
+    const ws = XLSX.utils.json_to_sheet(records.map(r => ({
+        日期: r.date, 
+        时间段: r.period, 
+        姓名: r.name
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "调休记录");
+    XLSX.writeFile(wb, `调休记录_${new Date().toLocaleDateString()}.xlsx`);
+}
+
+// 辅助函数
+function validateRecord({date, name}) {
+    if (!date || !name) {
+        alert('请填写完整信息');
+        return false;
+    }
+    if (!/^[\u4e00-\u9fa5]{2,4}$/.test(name)) {
+        alert('请输入有效中文姓名');
+        return false;
+    }
+    return true;
+}
+
+function calculateStats() {
+    const stats = {};
+    records.forEach(record => {
+        const month = record.date.substr(0, 7);
+        const key = `${record.name}|${month}`;
+        stats[key] = (stats[key] || 0) + 0.5;
+    });
+    return stats;
+}
+
+function renderTables() {
+    // 渲染记录表
+    document.getElementById('recordsBody').innerHTML = records
+        .map((r, i) => `
+            <tr>
+                <td>${r.date}</td>
+                <td>${r.period}</td>
+                <td>${r.name}</td>
+                <td><button class="delete-btn" onclick="deleteRecord(${i})">删除</button></td>
+            </tr>`)
+        .join('');
+
+    // 渲染统计表
+    const stats = calculateStats();
+    document.getElementById('statsBody').innerHTML = Object.keys(stats)
+        .map(k => {
+            const [name, month] = k.split('|');
+            return `<tr>
+                <td>${name}</td>
+                <td>${month}</td>
+                <td>${stats[k]} 天</td>
+            </tr>`;
+        })
+        .join('');
+}
+
+// 密码验证相关
+function showPasswordModal(callback) {
+    deleteIndex = callback;
+    document.getElementById('passwordModal').style.display = 'flex';
+}
+
+function confirmDelete() {
+    const input = document.getElementById('passwordInput').value;
+    if (input === PASSWORD) {
+        if (typeof deleteIndex === 'function') deleteIndex();
+        cancelDelete();
+    } else {
+        alert('密码错误');
+    }
+}
+
+function cancelDelete() {
+    document.getElementById('passwordModal').style.display = 'none';
+    deleteIndex = null;
+    document.getElementById('passwordInput').value = '';
+}
+
+// 工具函数
+function saveRecords() {
+    localStorage.setItem('leaveRecords', JSON.stringify(records));
+    renderTables();
+}
+
+function clearInputs() {
+    document.getElementById('dateInput').value = '';
+    document.getElementById('nameInput').value = '';
+}
+
+// 初始化
+document.addEventListener('DOMContentLoaded', renderTables);
+</script>
+</body>
+</html>
